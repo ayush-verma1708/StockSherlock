@@ -2,7 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+from pytz import timezone
 import os
 import time
 import ta
@@ -51,7 +52,7 @@ with col2:
         interval = st.selectbox("Interval:", options=interval_options, index=0)  # Default to 1d
 
 # Function to get stock data
-@st.cache_data(ttl=60)  # Cache data for just 1 minute to ensure real-time data, especially for intraday
+@st.cache_data(ttl=1)  # Cache data for just 1 second to ensure real-time data for intraday trading
 def get_stock_data(symbol, period, interval):
     try:
         # Get stock information
@@ -119,6 +120,105 @@ def get_stock_data(symbol, period, interval):
             # Bollinger Bands signals
             hist['price_above_upper_band'] = np.where(hist['Close'] > hist['bollinger_high'], 1, 0)
             hist['price_below_lower_band'] = np.where(hist['Close'] < hist['bollinger_low'], 1, 0)
+            
+            # Identify candlestick patterns
+            patterns = []
+            
+            # Define functions to identify candlestick patterns
+            def is_doji(open_price, close_price, high, low, threshold=0.1):
+                """Identify a Doji candlestick pattern"""
+                body_size = abs(open_price - close_price)
+                high_low_range = high - low
+                return body_size <= (high_low_range * threshold) and high_low_range > 0
+            
+            def is_hammer(open_price, close_price, high, low):
+                """Identify a Hammer candlestick pattern"""
+                body_size = abs(open_price - close_price)
+                high_low_range = high - low
+                if high_low_range == 0:  # Avoid division by zero
+                    return False
+                
+                is_bullish = close_price > open_price
+                upper_shadow = high - max(open_price, close_price)
+                lower_shadow = min(open_price, close_price) - low
+                
+                # Hammer criteria: small body, long lower shadow, little upper shadow
+                return (body_size <= high_low_range * 0.3 and
+                        lower_shadow >= body_size * 2 and
+                        upper_shadow <= body_size * 0.1)
+            
+            def is_shooting_star(open_price, close_price, high, low):
+                """Identify a Shooting Star candlestick pattern"""
+                body_size = abs(open_price - close_price)
+                high_low_range = high - low
+                if high_low_range == 0:  # Avoid division by zero
+                    return False
+                
+                upper_shadow = high - max(open_price, close_price)
+                lower_shadow = min(open_price, close_price) - low
+                
+                # Shooting star criteria: small body, long upper shadow, little lower shadow
+                return (body_size <= high_low_range * 0.3 and
+                        upper_shadow >= body_size * 2 and
+                        lower_shadow <= body_size * 0.1)
+            
+            def is_engulfing(curr_open, curr_close, curr_high, curr_low, 
+                             prev_open, prev_close, prev_high, prev_low):
+                """Identify Bullish/Bearish Engulfing patterns"""
+                curr_bullish = curr_close > curr_open
+                prev_bullish = prev_close > prev_open
+                
+                # Bullish engulfing
+                if (not prev_bullish and curr_bullish and
+                    curr_open < prev_close and
+                    curr_close > prev_open):
+                    return "Bullish Engulfing"
+                
+                # Bearish engulfing
+                elif (prev_bullish and not curr_bullish and
+                      curr_open > prev_close and
+                      curr_close < prev_open):
+                    return "Bearish Engulfing"
+                
+                return None
+            
+            # Apply pattern recognition logic to each candle
+            for i in range(len(hist)):
+                current_patterns = []
+                
+                # Get current candle data
+                curr_open = hist['Open'].iloc[i]
+                curr_close = hist['Close'].iloc[i]
+                curr_high = hist['High'].iloc[i]
+                curr_low = hist['Low'].iloc[i]
+                
+                # Check for single candle patterns
+                if is_doji(curr_open, curr_close, curr_high, curr_low):
+                    current_patterns.append("Doji")
+                
+                if is_hammer(curr_open, curr_close, curr_high, curr_low):
+                    current_patterns.append("Hammer")
+                
+                if is_shooting_star(curr_open, curr_close, curr_high, curr_low):
+                    current_patterns.append("Shooting Star")
+                
+                # Check for multi-candle patterns (requires previous candle)
+                if i > 0:
+                    prev_open = hist['Open'].iloc[i-1]
+                    prev_close = hist['Close'].iloc[i-1]
+                    prev_high = hist['High'].iloc[i-1]
+                    prev_low = hist['Low'].iloc[i-1]
+                    
+                    engulfing = is_engulfing(curr_open, curr_close, curr_high, curr_low,
+                                            prev_open, prev_close, prev_high, prev_low)
+                    if engulfing:
+                        current_patterns.append(engulfing)
+                
+                # Store identified patterns
+                patterns.append(', '.join(current_patterns) if current_patterns else '')
+            
+            # Add patterns to the dataframe
+            hist['candlestick_pattern'] = patterns
         
         # We don't return the stock object directly to avoid pickling issues
         # Instead we'll return the necessary data components
@@ -466,19 +566,19 @@ def display_stock_data():
                 
         # Auto-refresh for intraday trading
         if trading_mode == "Intraday Trading":
-            st.checkbox("Auto-refresh (every minute)", key="auto_refresh")
-            if st.session_state.get("auto_refresh", False):
-                st.markdown("Auto-refreshing data every minute...")
-                time_wait = 60
+            refresh_interval = st.slider("Auto-refresh (seconds)", min_value=1, max_value=60, value=5)
+            auto_refresh = st.checkbox("Enable Real-Time Updates", key="auto_refresh")
+            if auto_refresh:
+                st.markdown(f"**Auto-refreshing data every {refresh_interval} seconds for real-time analysis...**")
                 st.cache_data.clear()
-                time.sleep(1)  # To avoid excessive refreshing
+                time.sleep(0.5)  # Brief delay to prevent browser freezing
                 st.rerun()
         
         # Create tabs for technical indicators - different set based on trading mode
         if trading_mode == "Intraday Trading":
-            tab_names = ["MACD", "RSI", "Bollinger Bands", "Moving Averages", "Volume Profile"]
+            tab_names = ["MACD", "RSI", "Bollinger Bands", "Moving Averages", "Volume Profile", "Candlestick Patterns"]
         else:
-            tab_names = ["MACD", "RSI", "Bollinger Bands", "Moving Averages"]
+            tab_names = ["MACD", "RSI", "Bollinger Bands", "Moving Averages", "Candlestick Patterns"]
             
         # Create the tabs dynamically
         tabs = st.tabs(tab_names)
@@ -779,6 +879,115 @@ def display_stock_data():
                         st.warning("Insufficient price range for volume profile analysis")
                 else:
                     st.warning("Not enough data for volume profile analysis")
+                    
+        # Candlestick Pattern Tab
+        with tabs[-1]:  # Use -1 to always get the last tab (Candlestick Patterns)
+            st.subheader("Candlestick Pattern Analysis")
+            
+            if 'candlestick_pattern' in hist.columns:
+                # Create a Candlestick chart
+                fig_candles = go.Figure(data=[go.Candlestick(
+                    x=hist.index,
+                    open=hist['Open'],
+                    high=hist['High'],
+                    low=hist['Low'],
+                    close=hist['Close'],
+                    name="Price"
+                )])
+                
+                # Update layout
+                fig_candles.update_layout(
+                    title="Candlestick Chart with Pattern Detection",
+                    height=500,
+                    xaxis_title="Date",
+                    yaxis_title="Price (₹)",
+                    xaxis_rangeslider_visible=False  # Hide rangeslider for cleaner look
+                )
+                
+                st.plotly_chart(fig_candles, use_container_width=True)
+                
+                # Show recent patterns
+                st.subheader("Recent Candlestick Patterns")
+                
+                # Filter out entries with no patterns and get the most recent 10
+                patterns_df = hist[['Open', 'High', 'Low', 'Close', 'candlestick_pattern']].copy()
+                patterns_df = patterns_df[patterns_df['candlestick_pattern'] != ''].tail(10)
+                
+                if not patterns_df.empty:
+                    patterns_df = patterns_df.reset_index()
+                    patterns_df = patterns_df.rename(columns={
+                        'index': 'Date/Time',
+                        'candlestick_pattern': 'Pattern'
+                    })
+                    
+                    for idx, row in patterns_df.iterrows():
+                        date_str = row['Date/Time'].strftime("%Y-%m-%d %H:%M")
+                        pattern = row['Pattern']
+                        
+                        # Determine pattern sentiment (bullish/bearish)
+                        sentiment = ""
+                        color = "gray"
+                        if "Bullish" in pattern:
+                            sentiment = "Bullish Signal"
+                            color = "green"
+                        elif "Bearish" in pattern:
+                            sentiment = "Bearish Signal"
+                            color = "red"
+                        elif "Hammer" in pattern:
+                            sentiment = "Potential Reversal (Bullish)"
+                            color = "green"
+                        elif "Shooting Star" in pattern:
+                            sentiment = "Potential Reversal (Bearish)"
+                            color = "red"
+                        elif "Doji" in pattern:
+                            sentiment = "Indecision"
+                            color = "gray"
+                        
+                        st.markdown(f"**{date_str}:** {pattern} - <span style='color:{color}'>{sentiment}</span>", unsafe_allow_html=True)
+                        st.markdown(f"Price: ₹{row['Open']:.2f} → ₹{row['Close']:.2f} (H: ₹{row['High']:.2f}, L: ₹{row['Low']:.2f})")
+                        st.markdown("---")
+                    
+                    # Provide a pattern summary
+                    st.subheader("Pattern Trading Significance")
+                    st.markdown("""
+                    **Bullish Patterns:**
+                    - **Hammer:** Potential bullish reversal after downtrend
+                    - **Bullish Engulfing:** Strong reversal signal, especially after downtrend
+                    
+                    **Bearish Patterns:**
+                    - **Shooting Star:** Potential bearish reversal after uptrend
+                    - **Bearish Engulfing:** Strong reversal signal, especially after uptrend
+                    
+                    **Neutral/Indecision Patterns:**
+                    - **Doji:** Indecision in the market, potential for reversal
+                    """)
+                    
+                    # Add pattern-based trade signals
+                    latest_pattern = hist['candlestick_pattern'].iloc[-1]
+                    if latest_pattern:
+                        st.subheader("Latest Pattern Signal")
+                        
+                        if "Bullish" in latest_pattern or "Hammer" in latest_pattern:
+                            st.markdown("🟢 **BUY Signal** based on recent bullish candlestick pattern")
+                            st.markdown(f"Pattern: {latest_pattern}")
+                        elif "Bearish" in latest_pattern or "Shooting Star" in latest_pattern:
+                            st.markdown("🔴 **SELL Signal** based on recent bearish candlestick pattern")
+                            st.markdown(f"Pattern: {latest_pattern}")
+                        elif "Doji" in latest_pattern:
+                            st.markdown("⚪ **NEUTRAL Signal** (Market Indecision)")
+                            st.markdown("Consider waiting for clearer signals before entering a trade")
+                        
+                        # Add this pattern to the trading reasons if it exists
+                        if "Bullish" in latest_pattern or "Hammer" in latest_pattern:
+                            reason.append(f"Bullish candlestick pattern ({latest_pattern})")
+                            signal_strength += 1
+                        elif "Bearish" in latest_pattern or "Shooting Star" in latest_pattern:
+                            reason.append(f"Bearish candlestick pattern ({latest_pattern})")
+                            signal_strength -= 1
+                else:
+                    st.info("No significant candlestick patterns detected in the recent data.")
+            else:
+                st.warning("Candlestick pattern data not available for the selected time period.")
         
         # Trading Strategy Section
         st.markdown("---")
