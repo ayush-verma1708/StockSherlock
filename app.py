@@ -395,14 +395,14 @@ def display_stock_data():
             stop_loss_percent = st.sidebar.slider("Stop Loss (%)", 0.5, 5.0, 1.0, 0.1)
             take_profit_percent = st.sidebar.slider("Take Profit (%)", 0.5, 10.0, 2.0, 0.1)
             st.sidebar.markdown("### Intraday Time Constraints")
-            market_close_time = st.sidebar.time_input("Market Closing Time", datetime.now().replace(hour=15, minute=30).time())
-            exit_buffer_minutes = st.sidebar.slider("Exit Before Close (minutes)", 5, 60, 15)
+            st.session_state.market_close_time = st.sidebar.time_input("Market Closing Time", datetime.now().replace(hour=15, minute=30).time())
+            st.session_state.exit_buffer_minutes = st.sidebar.slider("Exit Before Close (minutes)", 5, 60, 15)
             max_holding_days = 1  # Fixed for intraday
             
             # Calculate exit time
             current_date = datetime.now().date()
-            market_close_datetime = datetime.combine(current_date, market_close_time)
-            exit_time = market_close_datetime - timedelta(minutes=exit_buffer_minutes)
+            market_close_datetime = datetime.combine(current_date, st.session_state.market_close_time)
+            exit_time = market_close_datetime - timedelta(minutes=st.session_state.exit_buffer_minutes)
             exit_time_str = exit_time.strftime("%H:%M")
             
             st.sidebar.markdown(f"**Exit all positions by:** {exit_time_str}")
@@ -914,15 +914,20 @@ def display_stock_data():
                 patterns_df = patterns_df[patterns_df['candlestick_pattern'] != ''].tail(10)
                 
                 if not patterns_df.empty:
+                    # Make sure we preserve the date index
                     patterns_df = patterns_df.reset_index()
-                    patterns_df = patterns_df.rename(columns={
-                        'index': 'Date/Time',
-                        'candlestick_pattern': 'Pattern'
-                    })
+                    # Check what the index column is named - usually 'Date' or 'Datetime'
+                    date_col = patterns_df.columns[0]  # First column after reset_index should be the date
                     
+                    # Process each row with the patterns
                     for idx, row in patterns_df.iterrows():
-                        date_str = row['Date/Time'].strftime("%Y-%m-%d %H:%M")
-                        pattern = row['Pattern']
+                        # Format the date properly regardless of column name
+                        date_val = row[date_col]
+                        try:
+                            date_str = date_val.strftime("%Y-%m-%d %H:%M")
+                        except:
+                            date_str = str(date_val)
+                        pattern = row['candlestick_pattern']
                         
                         # Determine pattern sentiment (bullish/bearish)
                         sentiment = ""
@@ -1058,13 +1063,21 @@ def display_stock_data():
             st.markdown(f"• Maximum loss per trade: ₹{investment_amount * (stop_loss_percent/100):.2f}")
             if trading_mode == "Intraday Trading":
                 st.markdown("• Exit all positions by end of day regardless of signals")
-                # Get exit time from market close time and buffer
+                # Get exit time (using default values of 15:30 close and 15 min buffer if not set in sidebar)
                 current_date = datetime.now().date()
-                market_close_datetime = datetime.combine(current_date, market_close_time) if 'market_close_time' in locals() else None
-                if market_close_datetime:
-                    exit_time = market_close_datetime - timedelta(minutes=exit_buffer_minutes) if 'exit_buffer_minutes' in locals() else market_close_datetime
-                    exit_time_str = exit_time.strftime("%H:%M")
-                    st.markdown(f"• Latest exit time: {exit_time_str}")
+                default_close_time = datetime.now().replace(hour=15, minute=30).time()
+                default_buffer = 15
+                
+                # Use either user-defined values or defaults
+                close_time = getattr(st.session_state, 'market_close_time', default_close_time)
+                buffer_mins = getattr(st.session_state, 'exit_buffer_minutes', default_buffer)
+                
+                # Calculate exit time
+                market_close_datetime = datetime.combine(current_date, close_time)
+                exit_time = market_close_datetime - timedelta(minutes=buffer_mins)
+                exit_time_str = exit_time.strftime("%H:%M")
+                
+                st.markdown(f"• Latest exit time: {exit_time_str}")
             st.markdown("• Track performance and adjust position sizing based on win/loss ratio")
         else:
             st.warning("Insufficient data to generate trading strategy recommendations.")

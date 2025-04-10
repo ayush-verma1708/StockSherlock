@@ -1,0 +1,181 @@
+Real-Time Stock Analyzer
+Advanced stock analysis tool for both intraday and long-term trading with live signals
+
+Enter Stock Symbol (e.g., RELIANCE.NS, TCS.NS, INFY.NS):
+
+RELIANCE.NS
+Time Period:
+
+6mo
+Interval:
+
+1d
+RELIANCE INDUSTRIES LTD
+Sector: Energy
+
+Industry: Oil & Gas Refining & Marketing
+
+Current Price: ₹1185.35
+
+Change: +3.15 (+0.27%)
+
+Market Cap: ₹16,040,629,108,736
+
+P/E Ratio: 23.201214
+
+52-Week Range: ₹1114.85 - ₹1608.80
+
+Historical Stock Price
+Key Financial Metrics
+Metric
+
+Value
+
+Market Cap
+
+₹16040.63B
+
+Enterprise Value
+
+₹19079.08B
+
+Trailing P/E
+
+23.20
+
+Forward P/E
+
+16.50
+
+PEG Ratio
+
+N/A
+
+Price to Book
+
+1.96
+
+Price to Sales
+
+1.71
+
+Dividend Yield
+
+42.00%
+
+50-Day MA
+
+1237.02
+
+200-Day MA
+
+1343.58
+
+Metric
+
+Value
+
+52-Week High
+
+1608.80
+
+52-Week Low
+
+1114.85
+
+Average Volume
+
+₹12.33M
+
+Beta
+
+0.57
+
+Return on Assets
+
+N/A
+
+Return on Equity
+
+N/A
+
+Revenue
+
+₹9398.38B
+
+Profit Margin
+
+7.36%
+
+Earnings Growth
+
+7.40%
+
+Revenue Growth
+
+6.60%
+
+Technical Analysis & Trading Signals
+Current Trading Signals for RELIANCE.NS
+RSI: NEUTRAL
+
+MACD: SELL
+
+Moving Average: BUY (Uptrend)
+
+Bollinger Bands: NEUTRAL
+
+Volume: NORMAL
+
+Trading Recommendation
+HOLD
+Based on:
+
+• MACD is below signal line and negative
+
+• Price is in an uptrend (20-day SMA > 50-day SMA)
+
+Technical Indicators
+Data as of: 2025-04-09 00:00:00+05:30
+
+
+
+MACD
+
+
+RSI
+
+
+Bollinger Bands
+
+
+Moving Averages
+
+
+Candlestick Patterns
+
+MACD Interpretation:
+
+When the MACD line crosses above the signal line: Bullish signal
+When the MACD line crosses below the signal line: Bearish signal
+Histogram shows the difference between MACD and signal line
+KeyError: 'Date/Time'
+Traceback:
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 121, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 640, in code_to_exec
+    exec(code, module.__dict__)
+File "/home/runner/workspace/app.py", line 1098, in <module>
+    display_stock_data()
+File "/home/runner/workspace/app.py", line 924, in display_stock_data
+    date_str = row['Date/Time'].strftime("%Y-%m-%d %H:%M")
+               ~~~^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/series.py", line 1121, in __getitem__
+    return self._get_value(key)
+           ^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/series.py", line 1237, in _get_value
+    loc = self.index.get_loc(label)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/pandas/core/indexes/base.py", line 3812, in get_loc
+    raise KeyError(key) from err
