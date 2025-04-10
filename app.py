@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import os
+import time
 import ta
 import numpy as np
 from ta.trend import MACD, SMAIndicator, EMAIndicator
@@ -19,21 +20,39 @@ st.set_page_config(
 )
 
 # Title and description
-st.title("📈 Stock Data Visualizer")
-st.markdown("Enter a stock symbol to view financial data and interactive charts. Data provided by Yahoo Finance.")
+st.title("📈 Real-Time Stock Analyzer")
+st.markdown("Advanced stock analysis tool for both intraday and long-term trading with live signals")
+
+# Sidebar configuration
+st.sidebar.title("Trading Configuration")
+
+# Trading mode selection
+trading_mode = st.sidebar.radio(
+    "Trading Mode:",
+    ["Intraday Trading", "Long-term Investment"]
+)
 
 # Input for stock symbol
 col1, col2 = st.columns([3, 1])
 with col1:
-    stock_symbol = st.text_input("Enter Stock Symbol (e.g., AAPL, MSFT, GOOGL):", "AAPL").upper()
+    stock_symbol = st.text_input("Enter Stock Symbol (e.g., RELIANCE.NS, TCS.NS, INFY.NS):", "RELIANCE.NS").upper()
+
+# Different time periods based on trading mode
 with col2:
-    period = st.selectbox("Select Time Period:", 
-                         options=["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"],
-                         index=3)
+    if trading_mode == "Intraday Trading":
+        period_options = ["1d", "5d", "1mo"]
+        interval_options = ["1m", "2m", "5m", "15m", "30m", "1h"]
+        period = st.selectbox("Time Period:", options=period_options, index=0)
+        interval = st.selectbox("Interval:", options=interval_options, index=4)  # Default to 30m for intraday
+    else:  # Long-term Investment
+        period_options = ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
+        interval_options = ["1d", "5d", "1wk", "1mo", "3mo"]
+        period = st.selectbox("Time Period:", options=period_options, index=2)  # Default to 6mo
+        interval = st.selectbox("Interval:", options=interval_options, index=0)  # Default to 1d
 
 # Function to get stock data
-@st.cache_data(ttl=300)  # Cache data for 5 minutes to ensure more real-time data for trading
-def get_stock_data(symbol, period):
+@st.cache_data(ttl=60)  # Cache data for just 1 minute to ensure real-time data, especially for intraday
+def get_stock_data(symbol, period, interval):
     try:
         # Get stock information
         stock = yf.Ticker(symbol)
@@ -43,11 +62,7 @@ def get_stock_data(symbol, period):
         if not info or 'regularMarketPrice' not in info:
             return None, None
         
-        # Get historical market data with 1m interval for intraday if period is 1mo or less
-        interval = '1d'
-        if period in ['1mo', '3mo']:
-            interval = '1h'  # Use hourly data for shorter periods
-            
+        # Get historical market data with the specified interval
         hist = stock.history(period=period, interval=interval)
         
         if hist.empty:
@@ -119,7 +134,7 @@ def display_stock_data():
         return
     
     with st.spinner(f"Loading data for {stock_symbol}..."):
-        info, hist = get_stock_data(stock_symbol, period)
+        info, hist = get_stock_data(stock_symbol, period, interval)
         
         if info is None or hist is None:
             st.error(f"No data found for {stock_symbol}. Please check the symbol and try again.")
@@ -274,9 +289,33 @@ def display_stock_data():
         st.sidebar.header("Trading Parameters")
         risk_appetite = st.sidebar.slider("Risk Appetite (1-10)", 1, 10, 5)
         investment_amount = st.sidebar.number_input("Investment Amount (₹)", min_value=1000, value=100000, step=1000)
-        stop_loss_percent = st.sidebar.slider("Stop Loss (%)", 1.0, 10.0, 3.0, 0.5)
-        take_profit_percent = st.sidebar.slider("Take Profit (%)", 1.0, 20.0, 6.0, 0.5)
-        max_holding_days = st.sidebar.slider("Max Holding Days", 1, 30, 5)
+        
+        # Different parameters for intraday vs long-term
+        if trading_mode == "Intraday Trading":
+            stop_loss_percent = st.sidebar.slider("Stop Loss (%)", 0.5, 5.0, 1.0, 0.1)
+            take_profit_percent = st.sidebar.slider("Take Profit (%)", 0.5, 10.0, 2.0, 0.1)
+            st.sidebar.markdown("### Intraday Time Constraints")
+            market_close_time = st.sidebar.time_input("Market Closing Time", datetime.now().replace(hour=15, minute=30).time())
+            exit_buffer_minutes = st.sidebar.slider("Exit Before Close (minutes)", 5, 60, 15)
+            max_holding_days = 1  # Fixed for intraday
+            
+            # Calculate exit time
+            current_date = datetime.now().date()
+            market_close_datetime = datetime.combine(current_date, market_close_time)
+            exit_time = market_close_datetime - timedelta(minutes=exit_buffer_minutes)
+            exit_time_str = exit_time.strftime("%H:%M")
+            
+            st.sidebar.markdown(f"**Exit all positions by:** {exit_time_str}")
+            st.sidebar.markdown("---")
+            
+            # Add intraday-specific settings
+            st.sidebar.markdown("### Intraday Settings")
+            momentum_sensitivity = st.sidebar.slider("Momentum Sensitivity", 1, 10, 5)
+            volatility_threshold = st.sidebar.slider("Volatility Threshold (%)", 0.5, 5.0, 1.5, 0.1)
+        else:
+            stop_loss_percent = st.sidebar.slider("Stop Loss (%)", 1.0, 15.0, 5.0, 0.5)
+            take_profit_percent = st.sidebar.slider("Take Profit (%)", 1.0, 30.0, 10.0, 0.5)
+            max_holding_days = st.sidebar.slider("Max Holding Days", 1, 90, 30)
         
         # Calculate the current trading signals
         current_signals = {}
@@ -284,9 +323,11 @@ def display_stock_data():
         signal_strength = 0
         reason = []
         
+        # Initialize latest_close to avoid UnboundLocalError
+        latest_close = hist['Close'].iloc[-1] if not hist.empty else 0.0
+        
         if 'rsi' in hist.columns and not hist.empty and not hist['rsi'].isna().all():
-            # Get the latest values
-            latest_close = hist['Close'].iloc[-1]
+            # Get the latest values (latest_close is already defined above)
             latest_rsi = hist['rsi'].iloc[-1]
             latest_macd = hist['macd'].iloc[-1] if 'macd' in hist.columns else None
             latest_macd_signal = hist['macd_signal'].iloc[-1] if 'macd_signal' in hist.columns else None
@@ -414,10 +455,36 @@ def display_stock_data():
         # Technical indicator charts
         st.subheader("Technical Indicators")
         
-        # Create tabs for different indicator charts
-        tab1, tab2, tab3, tab4 = st.tabs(["MACD", "RSI", "Bollinger Bands", "Moving Averages"])
+        # Add real-time update button and auto-refresh for intraday trading
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown(f"**Data as of:** {hist.index[-1]}")
+        with col2:
+            if st.button("🔄 Refresh Data"):
+                st.cache_data.clear()
+                st.rerun()
+                
+        # Auto-refresh for intraday trading
+        if trading_mode == "Intraday Trading":
+            st.checkbox("Auto-refresh (every minute)", key="auto_refresh")
+            if st.session_state.get("auto_refresh", False):
+                st.markdown("Auto-refreshing data every minute...")
+                time_wait = 60
+                st.cache_data.clear()
+                time.sleep(1)  # To avoid excessive refreshing
+                st.rerun()
         
-        with tab1:
+        # Create tabs for technical indicators - different set based on trading mode
+        if trading_mode == "Intraday Trading":
+            tab_names = ["MACD", "RSI", "Bollinger Bands", "Moving Averages", "Volume Profile"]
+        else:
+            tab_names = ["MACD", "RSI", "Bollinger Bands", "Moving Averages"]
+            
+        # Create the tabs dynamically
+        tabs = st.tabs(tab_names)
+        
+        # MACD tab
+        with tabs[0]:
             # MACD Chart
             if 'macd' in hist.columns and 'macd_signal' in hist.columns:
                 fig_macd = go.Figure()
@@ -468,7 +535,8 @@ def display_stock_data():
             else:
                 st.warning("MACD data not available for the selected time period.")
         
-        with tab2:
+        # RSI tab
+        with tabs[1]:
             # RSI Chart
             if 'rsi' in hist.columns:
                 fig_rsi = go.Figure()
@@ -510,7 +578,8 @@ def display_stock_data():
             else:
                 st.warning("RSI data not available for the selected time period.")
         
-        with tab3:
+        # Bollinger Bands tab
+        with tabs[2]:
             # Bollinger Bands Chart
             if all(x in hist.columns for x in ['bollinger_high', 'bollinger_low', 'bollinger_mavg']):
                 fig_bb = go.Figure()
@@ -568,7 +637,8 @@ def display_stock_data():
             else:
                 st.warning("Bollinger Bands data not available for the selected time period.")
         
-        with tab4:
+        # Moving Averages tab
+        with tabs[3]:
             # Moving Averages Chart
             if 'sma_20' in hist.columns and 'sma_50' in hist.columns:
                 fig_ma = go.Figure()
@@ -626,68 +696,164 @@ def display_stock_data():
                 """)
             else:
                 st.warning("Moving Average data not available for the selected time period.")
+                
+        # Volume Profile tab - only for intraday trading
+        if trading_mode == "Intraday Trading" and len(tabs) > 4:
+            with tabs[4]:
+                st.subheader("Volume Profile (Price by Volume)")
+                
+                if not hist.empty:
+                    # Create volume profile analysis
+                    price_range = hist['Close'].max() - hist['Close'].min()
+                    bin_size = price_range / 20  # Create 20 price bins
+                    
+                    # Create price bins
+                    if bin_size > 0:
+                        bins = np.arange(hist['Close'].min(), hist['Close'].max() + bin_size, bin_size)
+                        labels = [f"₹{round(b, 2)}" for b in bins[:-1]]
+                        
+                        # Categorize prices into bins
+                        hist['price_bin'] = pd.cut(hist['Close'], bins=bins, labels=labels)
+                        
+                        # Group by price bins and sum volumes
+                        volume_profile = hist.groupby('price_bin')['Volume'].sum().reset_index()
+                        
+                        # Create horizontal bar chart for volume profile
+                        fig_vp = go.Figure()
+                        fig_vp.add_trace(go.Bar(
+                            y=volume_profile['price_bin'],
+                            x=volume_profile['Volume'],
+                            orientation='h',
+                            marker=dict(color='skyblue'),
+                            name='Volume'
+                        ))
+                        
+                        # Add vertical line for current price
+                        fig_vp.add_vline(
+                            x=0,  # Doesn't matter for y-axis reference
+                            line=dict(color="red", width=2, dash="dash"),
+                            annotation_text=f"Current Price: ₹{hist['Close'].iloc[-1]:.2f}",
+                            annotation_position="top right"
+                        )
+                        
+                        # Update layout
+                        fig_vp.update_layout(
+                            title="Volume Profile Analysis (Price by Volume)",
+                            xaxis_title="Volume",
+                            yaxis_title="Price Levels",
+                            height=500,
+                            hoverlabel=dict(bgcolor="white", font_size=12),
+                            yaxis=dict(autorange="reversed")  # Higher prices at top
+                        )
+                        
+                        st.plotly_chart(fig_vp, use_container_width=True)
+                        
+                        # Identify high volume nodes
+                        volume_threshold = volume_profile['Volume'].mean() * 1.5
+                        high_volume_nodes = volume_profile[volume_profile['Volume'] >= volume_threshold]
+                        
+                        # Display high volume nodes interpretation
+                        if not high_volume_nodes.empty:
+                            st.subheader("High Volume Price Levels (Support/Resistance)")
+                            
+                            for _, node in high_volume_nodes.iterrows():
+                                price_level = node['price_bin']
+                                current_price = hist['Close'].iloc[-1]
+                                current_bin = pd.cut([current_price], bins=bins, labels=labels)[0]
+                                
+                                if price_level == current_bin:
+                                    st.markdown(f"• **Current Trading Level** at {price_level} - High volume suggests strong current interest")
+                                elif price_level < current_bin:
+                                    st.markdown(f"• **Support Level** at {price_level} - High volume below current price")
+                                else:
+                                    st.markdown(f"• **Resistance Level** at {price_level} - High volume above current price")
+                            
+                            st.markdown("""
+                            **Volume Profile Interpretation:**
+                            - High volume price levels act as support below current price and resistance above
+                            - Prices tend to move quickly through low volume areas
+                            - Trading at a high volume node suggests strong interest at current level
+                            - For intraday trading, these levels are key for placing stop loss and take profit orders
+                            """)
+                    else:
+                        st.warning("Insufficient price range for volume profile analysis")
+                else:
+                    st.warning("Not enough data for volume profile analysis")
         
         # Trading Strategy Section
         st.markdown("---")
         st.subheader("Trading Strategy")
         
         # Entry and Exit Strategy
-        strategy_col1, strategy_col2 = st.columns(2)
-        
-        with strategy_col1:
-            st.markdown("### Entry Strategy")
-            entry_strategy = []
+        if not hist.empty and latest_close > 0:
+            strategy_col1, strategy_col2 = st.columns(2)
             
-            if trade_recommendation in ["BUY", "STRONG BUY"]:
-                entry_strategy.append("• **Enter now** at market price")
-                entry_strategy.append(f"• Set stop loss at ₹{latest_close * (1 - stop_loss_percent/100):.2f} ({stop_loss_percent}% below current price)")
-                entry_strategy.append(f"• Set take profit at ₹{latest_close * (1 + take_profit_percent/100):.2f} ({take_profit_percent}% above current price)")
-                
-                # Calculate position size based on risk
-                risk_per_trade = investment_amount * (risk_appetite / 100)
-                max_position_size = min(investment_amount, risk_per_trade * 10)
-                recommended_position = round(max_position_size)
-                entry_strategy.append(f"• Recommended position size: ₹{recommended_position:,}")
-                
-                # Volume confirmation
-                if current_signals.get('Volume') == "HIGH (Confirming Move)":
-                    entry_strategy.append("• High volume confirms signal strength")
-                else:
-                    entry_strategy.append("• Consider waiting for increased volume confirmation")
-            else:
-                entry_strategy.append("• **Not recommended** for entry at current price")
-                if trade_recommendation == "HOLD":
-                    entry_strategy.append("• Monitor for improved entry signals")
-                    if any("uptrend" in s.lower() for s in reason):
-                        entry_strategy.append("• Consider buying on dips if uptrend continues")
-                elif "SELL" in trade_recommendation:
-                    entry_strategy.append("• Avoid buying in current downtrend")
-                    entry_strategy.append("• Wait for trend reversal confirmation")
-            
-            for point in entry_strategy:
-                st.markdown(point)
-        
-        with strategy_col2:
-            st.markdown("### Exit Strategy")
-            exit_strategy = []
-            
-            if trade_recommendation in ["SELL", "STRONG SELL"]:
-                exit_strategy.append("• **Exit now** at market price")
-                exit_strategy.append("• Avoid holding during downtrend")
-            elif trade_recommendation == "HOLD" and any("downtrend" in s.lower() for s in reason):
-                exit_strategy.append("• Consider partial profit taking")
-                exit_strategy.append(f"• Tighten stop loss to ₹{latest_close * (1 - stop_loss_percent/200):.2f} ({stop_loss_percent/2}% below current price)")
-            else:
-                exit_strategy.append(f"• Hold with stop loss at ₹{latest_close * (1 - stop_loss_percent/100):.2f}")
-                exit_strategy.append(f"• Maximum holding period: {max_holding_days} days")
-                exit_strategy.append(f"• Take profit at ₹{latest_close * (1 + take_profit_percent/100):.2f}")
+            with strategy_col1:
+                st.markdown("### Entry Strategy")
+                entry_strategy = []
                 
                 if trade_recommendation in ["BUY", "STRONG BUY"]:
-                    exit_strategy.append("• Consider trailing stop loss as price increases")
-                    exit_strategy.append("• Exit half position at first target, move stop loss to breakeven")
+                    entry_strategy.append("• **Enter now** at market price")
+                    entry_strategy.append(f"• Set stop loss at ₹{latest_close * (1 - stop_loss_percent/100):.2f} ({stop_loss_percent}% below current price)")
+                    entry_strategy.append(f"• Set take profit at ₹{latest_close * (1 + take_profit_percent/100):.2f} ({take_profit_percent}% above current price)")
+                    
+                    # Calculate position size based on risk
+                    risk_per_trade = investment_amount * (risk_appetite / 100)
+                    max_position_size = min(investment_amount, risk_per_trade * 10)
+                    recommended_position = round(max_position_size)
+                    entry_strategy.append(f"• Recommended position size: ₹{recommended_position:,}")
+                    
+                    # Volume confirmation
+                    if current_signals.get('Volume') == "HIGH (Confirming Move)":
+                        entry_strategy.append("• High volume confirms signal strength")
+                    else:
+                        entry_strategy.append("• Consider waiting for increased volume confirmation")
+                else:
+                    entry_strategy.append("• **Not recommended** for entry at current price")
+                    if trade_recommendation == "HOLD":
+                        entry_strategy.append("• Monitor for improved entry signals")
+                        if any("uptrend" in s.lower() for s in reason):
+                            entry_strategy.append("• Consider buying on dips if uptrend continues")
+                    elif "SELL" in trade_recommendation:
+                        entry_strategy.append("• Avoid buying in current downtrend")
+                        entry_strategy.append("• Wait for trend reversal confirmation")
+                
+                for point in entry_strategy:
+                    st.markdown(point)
             
-            for point in exit_strategy:
-                st.markdown(point)
+            with strategy_col2:
+                st.markdown("### Exit Strategy")
+                exit_strategy = []
+                
+                if trade_recommendation in ["SELL", "STRONG SELL"]:
+                    exit_strategy.append("• **Exit now** at market price")
+                    exit_strategy.append("• Avoid holding during downtrend")
+                elif trade_recommendation == "HOLD" and any("downtrend" in s.lower() for s in reason):
+                    exit_strategy.append("• Consider partial profit taking")
+                    exit_strategy.append(f"• Tighten stop loss to ₹{latest_close * (1 - stop_loss_percent/200):.2f} ({stop_loss_percent/2}% below current price)")
+                else:
+                    exit_strategy.append(f"• Hold with stop loss at ₹{latest_close * (1 - stop_loss_percent/100):.2f}")
+                    exit_strategy.append(f"• Maximum holding period: {max_holding_days} days")
+                    exit_strategy.append(f"• Take profit at ₹{latest_close * (1 + take_profit_percent/100):.2f}")
+                    
+                    if trade_recommendation in ["BUY", "STRONG BUY"]:
+                        exit_strategy.append("• Consider trailing stop loss as price increases")
+                        exit_strategy.append("• Exit half position at first target, move stop loss to breakeven")
+                
+                for point in exit_strategy:
+                    st.markdown(point)
+                    
+            # Risk Management
+            st.markdown("### Risk Management")
+            st.markdown(f"• Total position should not exceed {20 + risk_appetite * 3}% of your portfolio")
+            st.markdown(f"• Maximum loss per trade: ₹{investment_amount * (stop_loss_percent/100):.2f}")
+            if trading_mode == "Intraday Trading":
+                st.markdown("• Exit all positions by end of day regardless of signals")
+                if 'exit_time_str' in locals():
+                    st.markdown(f"• Latest exit time: {exit_time_str}")
+            st.markdown("• Track performance and adjust position sizing based on win/loss ratio")
+        else:
+            st.warning("Insufficient data to generate trading strategy recommendations.")
         
         st.markdown("### Risk Management")
         st.markdown(f"• Total position should not exceed {20 + risk_appetite * 3}% of your portfolio")
