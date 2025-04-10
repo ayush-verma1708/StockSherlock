@@ -35,18 +35,20 @@ def get_stock_data(symbol, period):
         # Check if the stock exists by trying to get info
         info = stock.info
         if not info or 'regularMarketPrice' not in info:
-            return None, None, None
+            return None, None
         
         # Get historical market data
         hist = stock.history(period=period)
         
         if hist.empty:
-            return None, None, None
+            return None, None
         
-        return stock, info, hist
+        # We don't return the stock object directly to avoid pickling issues
+        # Instead we'll return the necessary data components
+        return info, hist
     except Exception as e:
         st.error(f"Error fetching data: {e}")
-        return None, None, None
+        return None, None
 
 # Main function to display stock data
 def display_stock_data():
@@ -55,9 +57,9 @@ def display_stock_data():
         return
     
     with st.spinner(f"Loading data for {stock_symbol}..."):
-        stock, info, hist = get_stock_data(stock_symbol, period)
+        info, hist = get_stock_data(stock_symbol, period)
         
-        if stock is None or info is None or hist is None:
+        if info is None or hist is None:
             st.error(f"No data found for {stock_symbol}. Please check the symbol and try again.")
             return
         
