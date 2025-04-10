@@ -1107,9 +1107,23 @@ def display_stock_data():
             )
 
 # Run the main function
-if __name__ == "__main__":
+# if __name__ == "__main__":
+#     display_stock_data()
+    
+#     # Add footer
+#     st.markdown("---")
+#     st.caption("Data provided by Yahoo Finance. This app is for informational purposes only and does not constitute financial advice.")
+
+
+
+def main():
     display_stock_data()
     
     # Add footer
     st.markdown("---")
     st.caption("Data provided by Yahoo Finance. This app is for informational purposes only and does not constitute financial advice.")
+
+if __name__ == "__main__":
+    main()
+    # Start Streamlit server
+    os.system("streamlit run app.py --server.address 0.0.0.0 --server.port 8501")
