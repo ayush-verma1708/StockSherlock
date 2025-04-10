@@ -5,7 +5,7 @@ channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "autoscale"
-run = "streamlit run app.py --server.address 0.0.0.0 --server.port 5000"
+run = "pip install -r requirements.txt && streamlit run app.py --server.address 0.0.0.0 --server.port 5000"
 
 [workflows]
 runButton = "Run Stock App"
