@@ -715,8 +715,8 @@ def display_stock_data():
                         # Categorize prices into bins
                         hist['price_bin'] = pd.cut(hist['Close'], bins=bins, labels=labels)
                         
-                        # Group by price bins and sum volumes
-                        volume_profile = hist.groupby('price_bin')['Volume'].sum().reset_index()
+                        # Group by price bins and sum volumes (with observed=True to silence warning)
+                        volume_profile = hist.groupby('price_bin', observed=True)['Volume'].sum().reset_index()
                         
                         # Create horizontal bar chart for volume profile
                         fig_vp = go.Figure()
@@ -849,17 +849,16 @@ def display_stock_data():
             st.markdown(f"• Maximum loss per trade: ₹{investment_amount * (stop_loss_percent/100):.2f}")
             if trading_mode == "Intraday Trading":
                 st.markdown("• Exit all positions by end of day regardless of signals")
-                if 'exit_time_str' in locals():
+                # Get exit time from market close time and buffer
+                current_date = datetime.now().date()
+                market_close_datetime = datetime.combine(current_date, market_close_time) if 'market_close_time' in locals() else None
+                if market_close_datetime:
+                    exit_time = market_close_datetime - timedelta(minutes=exit_buffer_minutes) if 'exit_buffer_minutes' in locals() else market_close_datetime
+                    exit_time_str = exit_time.strftime("%H:%M")
                     st.markdown(f"• Latest exit time: {exit_time_str}")
             st.markdown("• Track performance and adjust position sizing based on win/loss ratio")
         else:
             st.warning("Insufficient data to generate trading strategy recommendations.")
-        
-        st.markdown("### Risk Management")
-        st.markdown(f"• Total position should not exceed {20 + risk_appetite * 3}% of your portfolio")
-        st.markdown(f"• Maximum loss per trade: ₹{investment_amount * (stop_loss_percent/100):.2f}")
-        st.markdown("• For intraday trading, exit all positions by end of day regardless of signals")
-        st.markdown("• Track performance and adjust position sizing based on win/loss ratio")
         
         # Download buttons
         st.markdown("---")
